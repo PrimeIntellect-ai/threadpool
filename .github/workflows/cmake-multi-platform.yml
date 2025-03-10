@@ -79,3 +79,72 @@ jobs:
       - name: Test
         working-directory: ${{ steps.strings.outputs.build-output-dir }}
         run: ctest --build-config ${{ matrix.build_type }} --rerun-failed --output-on-failure
+
+  # FreeBSD build using vmactions/freebsd-vm@v1
+  build-freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build & Test on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "13.4"
+          usesh: true
+
+          prepare: |
+            pkg update -f
+            pkg install -y cmake ninja llvm16
+
+          run: |
+            export PATH="/usr/local/llvm16/bin:$PATH"
+            
+            which clang-scan-deps || (echo "clang-scan-deps not found!" && exit 1)
+            
+            mkdir -p build
+            cmake -B build -G Ninja \
+                  -DCMAKE_C_COMPILER=cc \
+                  -DCMAKE_CXX_COMPILER=c++ \
+                  -DCMAKE_BUILD_TYPE=Release \
+                  -DTHREAD_PARK_RUN_TESTS=ON \
+                  .
+            cmake --build build
+            cd build
+            ctest --output-on-failure
+
+  # OpenBSD build using vmactions/openbsd-vm@v1
+  build-openbsd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build & Test on OpenBSD
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: "7.6"
+          usesh: true
+
+          prepare: |
+            export PKG_PATH="https://cdn.openbsd.org/pub/OpenBSD/7.6/packages/amd64/"
+            
+            pkg_add -I cmake-3.30.1v1 ninja-1.11.1p0v0 llvm-16.0.6p30
+
+          run: |
+            export PATH="/usr/local/llvm/bin:$PATH"
+            
+            which clang-scan-deps || (echo "clang-scan-deps not found!" && exit 1)
+            
+            mkdir -p build
+            cmake -B build -G Ninja \
+                  -DCMAKE_C_COMPILER=cc \
+                  -DCMAKE_CXX_COMPILER=c++ \
+                  -DCMAKE_BUILD_TYPE=Release \
+                  -DTHREAD_PARK_RUN_TESTS=ON \
+                  .
+            cmake --build build
+            cd build
+            ctest --output-on-failure
