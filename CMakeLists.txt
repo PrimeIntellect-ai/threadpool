@@ -14,7 +14,7 @@ target_link_libraries(threadpool PRIVATE threadpark)
 
 option(PI_THREADPOOL_BUILD_TESTS "Build tests" ON)
 
+enable_testing()
 if (PI_THREADPOOL_BUILD_TESTS)
-    enable_testing()
     add_subdirectory(tests)
 endif ()
