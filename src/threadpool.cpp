@@ -4,6 +4,7 @@
 #include <vector>
 #include <thread>
 #include <atomic>
+#include <list>
 #include <random>
 #include <unordered_map>
 
@@ -25,7 +26,7 @@ namespace pi::threadpool {
         }
     };
 
-    TaskFuture::TaskFuture() : internal_state(std::make_unique<TaskFutureInternalState>()) {
+    TaskFuture::TaskFuture() : internal_state(std::make_shared<TaskFutureInternalState>()) {
     }
 
     TaskFuture::TaskFuture(TaskFuture &&other) noexcept : internal_state(std::move(other.internal_state)) {
@@ -47,7 +48,7 @@ namespace pi::threadpool {
 
         explicit TaskQueueItem(std::function<void()> task,
                                const std::shared_ptr<TaskFutureInternalState> &future_state): task(std::move(task)),
-                                                                       future_state(future_state) {
+            future_state(future_state) {
         }
     };
 
@@ -70,7 +71,12 @@ namespace pi::threadpool {
         int max_task_capacity{};
 
         std::vector<std::thread> threads{};
-        std::unordered_map<std::thread::id, WorkerState> worker_states{};
+        std::vector<std::unique_ptr<WorkerState>> worker_states{};
+
+        ThreadPoolInternalState(const int num_threads, const int max_task_capacity) : num_threads(num_threads),
+            max_task_capacity(max_task_capacity) {
+            worker_states.reserve(num_threads);
+        }
     };
 }
 
@@ -113,55 +119,50 @@ static void WorkerThread(std::future<std::reference_wrapper<pi::threadpool::Work
 }
 
 static std::thread::id CreateWorkerThread(pi::threadpool::ThreadPoolInternalState *internal_state) {
-    std::promise<std::reference_wrapper<pi::threadpool::WorkerState>> taskqueue_promise{};
+    std::promise<std::reference_wrapper<pi::threadpool::WorkerState>> workerstate_promise{};
     std::future<std::reference_wrapper<pi::threadpool::WorkerState>> taskqueue_future =
-            taskqueue_promise.get_future();
-
+            workerstate_promise.get_future();
     const auto &worker_thread = internal_state->threads.emplace_back(WorkerThread, std::move(taskqueue_future),
                                                                      internal_state);
     const std::thread::id worker_thread_id = worker_thread.get_id();
-
-    const auto [task_queue_it, _] = internal_state->worker_states.emplace(
-        worker_thread_id, internal_state->max_task_capacity);
-    auto &task_queue = task_queue_it->second;
-    taskqueue_promise.set_value(task_queue);
+    const auto &worker_state = internal_state->worker_states.emplace_back(
+        std::make_unique<pi::threadpool::WorkerState>(internal_state->max_task_capacity));
+    workerstate_promise.set_value(*worker_state);
     return worker_thread_id;
 }
 
-static std::thread::id GetSchedDstThread(const pi::threadpool::ThreadPoolInternalState &state) {
+static std::pair<std::thread::id, std::size_t> GetSchedDstThread(const pi::threadpool::ThreadPoolInternalState &state) {
     thread_local std::mt19937 rng{std::random_device{}()};
     std::uniform_int_distribution<std::size_t> dist(0, state.threads.size() - 1);
-    return state.threads.at(dist(rng)).get_id();
+    std::size_t idx = dist(rng);
+    return std::make_pair(state.threads.at(idx).get_id(), idx);
 }
 
 static void ScheduleTaskOnFreeThread(pi::threadpool::ThreadPoolInternalState &state,
                                      const pi::threadpool::TaskQueueItem &item) {
-    const std::thread::id thread_id = GetSchedDstThread(state);
+    const auto [thread_id, thread_idx] = GetSchedDstThread(state);
     auto *enqueued_item = new pi::threadpool::TaskQueueItem(item.task, item.future_state);
-    pi::threadpool::WorkerState &worker_state = state.worker_states.at(thread_id);
-    if (!worker_state.task_queue.enqueue(enqueued_item, false)) {
+    const auto &worker_state = state.worker_states.at(thread_idx);
+    if (!worker_state->task_queue.enqueue(enqueued_item, false)) {
+        delete enqueued_item;
         throw std::runtime_error(
             "pi::threadpool::Threadpool task queue does not have enough capacity to enqueue the task. Please increase max_task_queue_size."
         );
     }
-
     // wake worker thread
-    tparkWake(worker_state.park_handle);
+    tparkWake(worker_state->park_handle);
 }
 
 pi::threadpool::ThreadPool::ThreadPool(const int num_threads, const int max_task_queue_size) : internal_state(
-    new ThreadPoolInternalState{
-        .num_threads = num_threads,
-        .max_task_capacity = max_task_queue_size,
-    }) {
+    new ThreadPoolInternalState{num_threads, max_task_queue_size}) {
 }
 
 void pi::threadpool::ThreadPool::startup() const {
+    internal_state->running.store(true, std::memory_order_release);
     // create and start worker threads
     for (int i = 0; i < internal_state->num_threads; ++i) {
         CreateWorkerThread(internal_state);
     }
-    internal_state->running.store(true, std::memory_order_release);
 }
 
 void pi::threadpool::ThreadPool::shutdown() const {
@@ -171,7 +172,7 @@ void pi::threadpool::ThreadPool::shutdown() const {
 
     if (internal_state->running.exchange(false, std::memory_order_release)) {
         for (auto &worker_state: internal_state->worker_states) {
-            tparkWake(worker_state.second.park_handle);
+            tparkWake(worker_state->park_handle);
         }
         for (auto &thread: internal_state->threads) {
             thread.join();
