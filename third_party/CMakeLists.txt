@@ -1,3 +1,3 @@
-if (NOT TARGET threadpool)
+if (NOT TARGET threadpark)
     add_subdirectory(threadpark)
 endif ()
