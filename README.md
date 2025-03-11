@@ -1,6 +1,6 @@
 # threadpool
 
-A fast and lightweight C++ threadpool. Uses ![threadpark](https://github.com/PrimeIntellect-ai/threadpark) for parking and unparking worker threads.
+A fast and lightweight C++ threadpool. Uses [threadpark](https://github.com/PrimeIntellect-ai/threadpark) for parking and unparking worker threads.
 The user is responsible for ensuring that writes by the dispatching thread are visible to the worker thread, if such a state access occurs due to the wake up being fast enough for this to be an issue.
 
 ## Example usage
