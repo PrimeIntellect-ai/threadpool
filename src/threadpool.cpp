@@ -6,7 +6,6 @@
 #include <atomic>
 #include <list>
 #include <random>
-#include <unordered_map>
 
 #include <MPSCQueue.hpp>
 #include <threadpark.h>
@@ -132,13 +131,20 @@ static std::thread::id CreateWorkerThread(pi::threadpool::ThreadPoolInternalStat
 }
 
 static std::pair<std::thread::id, std::size_t> GetSchedDstThread(const pi::threadpool::ThreadPoolInternalState &state) {
+    // find first free thread
+    for (std::size_t i = 0; i < state.worker_states.size(); ++i) {
+        if (state.worker_states.at(i)->task_queue.size() == 0) {
+            return std::make_pair(state.threads.at(i).get_id(), i);
+        }
+    }
+    // if all threads are busy, schedule on a random thread
     thread_local std::mt19937 rng{std::random_device{}()};
     std::uniform_int_distribution<std::size_t> dist(0, state.threads.size() - 1);
     std::size_t idx = dist(rng);
     return std::make_pair(state.threads.at(idx).get_id(), idx);
 }
 
-static void ScheduleTaskOnFreeThread(pi::threadpool::ThreadPoolInternalState &state,
+static void ScheduleTaskOnFreeThread(const pi::threadpool::ThreadPoolInternalState &state,
                                      const pi::threadpool::TaskQueueItem &item) {
     const auto [thread_id, thread_idx] = GetSchedDstThread(state);
     auto *enqueued_item = new pi::threadpool::TaskQueueItem(item.task, item.future_state);
