@@ -9,8 +9,10 @@ target_include_directories(threadpool PUBLIC include)
 target_include_directories(threadpool PRIVATE internal)
 
 add_subdirectory(third_party)
-
 target_link_libraries(threadpool PRIVATE threadpark)
+
+find_package(Threads REQUIRED)
+target_link_libraries(threadpool PRIVATE Threads::Threads)
 
 option(PI_THREADPOOL_BUILD_TESTS "Build tests" OFF)
 
