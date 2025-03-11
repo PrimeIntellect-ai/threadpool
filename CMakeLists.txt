@@ -12,7 +12,7 @@ add_subdirectory(third_party)
 
 target_link_libraries(threadpool PRIVATE threadpark)
 
-option(PI_THREADPOOL_BUILD_TESTS "Build tests" ON)
+option(PI_THREADPOOL_BUILD_TESTS "Build tests" OFF)
 
 enable_testing()
 if (PI_THREADPOOL_BUILD_TESTS)
