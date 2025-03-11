@@ -13,7 +13,7 @@ The following example showcases the threadpool API:
 #include <iostream>
 
 int main() {
-    const pi::threadpool::ThreadPool pool{/*num_threads=*/1, /*num_threads=*/64};
+    const pi::threadpool::ThreadPool pool{/*num_threads=*/1, /*max_task_queue_size=*/64};
     pool.startup();
     std::vector<pi::threadpool::TaskFuture> futures{};
     for (int i = 0; i < 10; i++) {
