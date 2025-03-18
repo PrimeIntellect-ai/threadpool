@@ -34,7 +34,7 @@ namespace pi::threadpool {
 
     void TaskFuture::join() const {
         tparkBeginPark(internal_state->park_handle);
-        if (internal_state->done.load(std::memory_order_acquire)) {
+        if (internal_state->done.load(std::memory_order_seq_cst)) {
             tparkEndPark(internal_state->park_handle);
             return;
         }
@@ -81,7 +81,7 @@ namespace pi::threadpool {
 
 static void RunTaskQueueItem(const pi::threadpool::TaskQueueItem *entry) {
     entry->task();
-    entry->future_state->done.store(true, std::memory_order_release);
+    entry->future_state->done.store(true, std::memory_order_seq_cst);
     tparkWake(entry->future_state->park_handle);
 }
 
