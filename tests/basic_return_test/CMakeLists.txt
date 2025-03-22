@@ -1,0 +1,3 @@
+add_executable(basic_return_test basic_return_test.cpp)
+target_link_libraries(basic_return_test PRIVATE threadpool)
+add_test(NAME basic_return_test COMMAND basic_return_test)

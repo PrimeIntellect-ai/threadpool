@@ -14,6 +14,7 @@
 namespace pi::threadpool {
     struct TaskFutureInternalState {
         tpark_handle_t *park_handle;
+        ResultWrapper result_wrapper;
         std::atomic<bool> done{};
 
         TaskFutureInternalState() {
@@ -25,14 +26,15 @@ namespace pi::threadpool {
         }
     };
 
-    TaskFuture::TaskFuture() : internal_state(std::make_shared<TaskFutureInternalState>()) {
+    std::shared_ptr<TaskFutureInternalState> internal::MakeFutureInternalState() {
+        return std::make_shared<TaskFutureInternalState>();
     }
 
-    TaskFuture::TaskFuture(TaskFuture &&other) noexcept : internal_state(std::move(other.internal_state)) {
-        other.internal_state = nullptr;
+    const ResultWrapper &internal::GetResultWrapper(const std::shared_ptr<TaskFutureInternalState> &future_state) {
+        return future_state->result_wrapper;
     }
 
-    void TaskFuture::join() const {
+    void internal::JoinFuture(const std::shared_ptr<TaskFutureInternalState> &internal_state) {
         tparkBeginPark(internal_state->park_handle);
         if (internal_state->done.load(std::memory_order_seq_cst)) {
             tparkEndPark(internal_state->park_handle);
@@ -42,10 +44,10 @@ namespace pi::threadpool {
     }
 
     struct TaskQueueItem {
-        std::function<void()> task;
+        std::function<ResultWrapper()> task;
         std::shared_ptr<TaskFutureInternalState> future_state;
 
-        explicit TaskQueueItem(std::function<void()> task,
+        explicit TaskQueueItem(std::function<ResultWrapper()> task,
                                const std::shared_ptr<TaskFutureInternalState> &future_state): task(std::move(task)),
             future_state(future_state) {
         }
@@ -80,7 +82,8 @@ namespace pi::threadpool {
 }
 
 static void RunTaskQueueItem(const pi::threadpool::TaskQueueItem *entry) {
-    entry->task();
+    auto result_wrapper = entry->task();
+    entry->future_state->result_wrapper = std::move(result_wrapper);
     entry->future_state->done.store(true, std::memory_order_seq_cst);
     tparkWake(entry->future_state->park_handle);
 }
@@ -144,11 +147,16 @@ static std::pair<std::thread::id, std::size_t> GetSchedDstThread(const pi::threa
     return std::make_pair(state.threads.at(idx).get_id(), idx);
 }
 
-static void ScheduleTaskOnFreeThread(const pi::threadpool::ThreadPoolInternalState &state,
-                                     const pi::threadpool::TaskQueueItem &item) {
-    const auto [thread_id, thread_idx] = GetSchedDstThread(state);
-    auto *enqueued_item = new pi::threadpool::TaskQueueItem(item.task, item.future_state);
-    const auto &worker_state = state.worker_states.at(thread_idx);
+void pi::threadpool::ScheduleTaskOnFreeThread(const ThreadPoolInternalState *pool_state,
+                                              const std::shared_ptr<TaskFutureInternalState> &future_state,
+                                              const std::function<ResultWrapper()> &task) {
+    const TaskQueueItem item{
+        task,
+        future_state
+    };
+    const auto [thread_id, thread_idx] = GetSchedDstThread(*pool_state);
+    auto *enqueued_item = new TaskQueueItem(item.task, item.future_state);
+    const auto &worker_state = pool_state->worker_states.at(thread_idx);
     if (!worker_state->task_queue.enqueue(enqueued_item, false)) {
         delete enqueued_item;
         throw std::runtime_error(
@@ -186,14 +194,16 @@ void pi::threadpool::ThreadPool::shutdown() const {
     }
 }
 
-pi::threadpool::TaskFuture pi::threadpool::ThreadPool::scheduleTask(const std::function<void()> &task) const {
-    if (!internal_state->running.load(std::memory_order_acquire)) {
-        throw std::runtime_error("pi::threadpool::ThreadPool::scheduleTask called before startup");
-    }
-    TaskFuture future{};
-    const TaskQueueItem item{task, future.internal_state};
-    ScheduleTaskOnFreeThread(*internal_state, item);
-    return future;
+bool pi::threadpool::ThreadPool::isPoolRunning() const {
+    return internal_state->running.load(std::memory_order_acquire);
+}
+
+pi::threadpool::TaskFuture<pi::threadpool::void_t> pi::threadpool::ThreadPool::scheduleTask(
+    const std::function<void()> &task) const {
+    return scheduleTaskWithResult<void_t>([task]() -> void_t {
+        task();
+        return 0;
+    });
 }
 
 pi::threadpool::ThreadPool::~ThreadPool() {

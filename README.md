@@ -15,7 +15,7 @@ The following example showcases the threadpool API:
 int main() {
     const pi::threadpool::ThreadPool pool{/*num_threads=*/1, /*max_task_queue_size=*/64};
     pool.startup();
-    std::vector<pi::threadpool::TaskFuture> futures{};
+    std::vector<pi::threadpool::TaskFuture<pi::threadpool::void_t>> futures{};
     for (int i = 0; i < 10; i++) {
         auto future = pool.scheduleTask([i] {
             std::cout << "Hello World: " << i << std::endl;
@@ -24,6 +24,35 @@ int main() {
     }
     for (const auto &f : futures) {
         f.join();
+    }
+    pool.shutdown();
+    return 0;
+}
+```
+
+It is also possible to return values from a task, as long as they are copyable:
+```cpp
+#include <iostream>
+#include <pithreadpool/threadpool.hpp>
+
+int main() {
+    const pi::threadpool::ThreadPool pool{1, 64};
+    pool.startup();
+    std::vector<pi::threadpool::TaskFuture<int>> futures{};
+    for (int i = 0; i < 10; i++) {
+        auto future = pool.scheduleTaskWithResult<int>([i] {
+            std::cout << "Hello World: " << i << std::endl;
+            return i;
+        });
+        futures.emplace_back(std::move(future));
+    }
+    int i = 0;
+    for (const auto &f : futures) {
+        if (f.get() != i) {
+            std::cerr << "Mismatch" << std::endl;
+            std::abort();
+        }
+        i++;
     }
     pool.shutdown();
     return 0;
