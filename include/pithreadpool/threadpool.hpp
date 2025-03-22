@@ -3,6 +3,7 @@
 #include <memory>
 #include <optional>
 #include <functional>
+#include <stdexcept>
 
 namespace pi::threadpool {
     typedef uint32_t void_t;
