@@ -62,6 +62,9 @@ namespace pi::threadpool {
             other.internal_state = nullptr;
         }
 
+        TaskFuture& operator=(TaskFuture &other) = delete;
+        TaskFuture& operator=(TaskFuture &&other) = default;
+
         void join() const {
             internal::JoinFuture(internal_state);
         }
