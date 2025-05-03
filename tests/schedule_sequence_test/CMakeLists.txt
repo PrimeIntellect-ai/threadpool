@@ -1,0 +1,3 @@
+add_executable(schedule_sequence_test schedule_sequence_test.cpp)
+target_link_libraries(schedule_sequence_test PRIVATE threadpool)
+add_test(NAME schedule_sequence_test COMMAND schedule_sequence_test)

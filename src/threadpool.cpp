@@ -134,7 +134,7 @@ static std::thread::id CreateWorkerThread(pi::threadpool::ThreadPoolInternalStat
 }
 
 static std::pair<std::thread::id, std::size_t> GetSchedDstThread(const pi::threadpool::ThreadPoolInternalState &state) {
-    // find first free thread
+    // find first free thread not equal to the current thread
     for (std::size_t i = 0; i < state.worker_states.size(); ++i) {
         if (state.worker_states.at(i)->task_queue.size() == 0) {
             return std::make_pair(state.threads.at(i).get_id(), i);
@@ -154,6 +154,16 @@ void pi::threadpool::ScheduleTaskOnFreeThread(const ThreadPoolInternalState *poo
         task,
         future_state
     };
+    // check if current thread is worker of the pool and throw if it is
+    {
+        for (std::size_t i = 0; i < pool_state->worker_states.size(); ++i) {
+            if (pool_state->threads.at(i).get_id() == std::this_thread::get_id()) {
+                throw std::runtime_error(
+                    "pi::threadpool::ThreadPool::scheduleTask called from a worker thread. This is not allowed."
+                );
+            }
+        }
+    }
     const auto [thread_id, thread_idx] = GetSchedDstThread(*pool_state);
     auto *enqueued_item = new TaskQueueItem(item.task, item.future_state);
     const auto &worker_state = pool_state->worker_states.at(thread_idx);
@@ -196,14 +206,6 @@ void pi::threadpool::ThreadPool::shutdown() const {
 
 bool pi::threadpool::ThreadPool::isPoolRunning() const {
     return internal_state->running.load(std::memory_order_acquire);
-}
-
-pi::threadpool::TaskFuture<pi::threadpool::void_t> pi::threadpool::ThreadPool::scheduleTask(
-    const std::function<void()> &task) const {
-    return scheduleTaskWithResult<void_t>([task]() -> void_t {
-        task();
-        return 0;
-    });
 }
 
 pi::threadpool::ThreadPool::~ThreadPool() {

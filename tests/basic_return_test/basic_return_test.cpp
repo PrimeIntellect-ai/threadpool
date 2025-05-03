@@ -6,7 +6,7 @@ int main() {
     pool.startup();
     std::vector<pi::threadpool::TaskFuture<int>> futures{};
     for (int i = 0; i < 10; i++) {
-        auto future = pool.scheduleTaskWithResult<int>([i] {
+        auto future = pool.scheduleTask<int>([i] {
             std::cout << "Hello World: " << i << std::endl;
             return i;
         });

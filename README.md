@@ -15,7 +15,7 @@ The following example showcases the threadpool API:
 int main() {
     const pi::threadpool::ThreadPool pool{/*num_threads=*/1, /*max_task_queue_size=*/64};
     pool.startup();
-    std::vector<pi::threadpool::TaskFuture<pi::threadpool::void_t>> futures{};
+    std::vector<pi::threadpool::TaskFuture<void>> futures{};
     for (int i = 0; i < 10; i++) {
         auto future = pool.scheduleTask([i] {
             std::cout << "Hello World: " << i << std::endl;
@@ -40,7 +40,7 @@ int main() {
     pool.startup();
     std::vector<pi::threadpool::TaskFuture<int>> futures{};
     for (int i = 0; i < 10; i++) {
-        auto future = pool.scheduleTaskWithResult<int>([i] {
+        auto future = pool.scheduleTask<int>([i] {
             std::cout << "Hello World: " << i << std::endl;
             return i;
         });
@@ -53,6 +53,27 @@ int main() {
             std::abort();
         }
         i++;
+    }
+    pool.shutdown();
+    return 0;
+}
+```
+
+Or schedule a sequence of tasks:
+```cpp
+#include <iostream>
+#include <pithreadpool/threadpool.hpp>
+
+int main() {
+    const pi::threadpool::ThreadPool pool{1, 64};
+    pool.startup();
+    pi::theradpool::MultiTaskFuture<int> future = pool.scheduleTasks<int>(0u, 10u, [](size_t i) {
+        std::cout << "Hello World: " << i << std::endl;
+        return static_cast<int>(i);
+    });
+    future.join();
+    for (size_t i = 0; i < future.size(); i++) {
+        std::cout << "Result: " << future.get(i) << std::endl;
     }
     pool.shutdown();
     return 0;

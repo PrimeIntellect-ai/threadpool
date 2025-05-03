@@ -1,0 +1,3 @@
+add_executable(nested_launching_test nested_launching_test.cpp)
+target_link_libraries(nested_launching_test PRIVATE threadpool)
+add_test(NAME nested_launching_test COMMAND nested_launching_test)

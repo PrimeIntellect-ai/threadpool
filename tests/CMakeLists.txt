@@ -1,2 +1,4 @@
 add_subdirectory(basic_sched_test)
 add_subdirectory(basic_return_test)
+add_subdirectory(nested_launching)
+add_subdirectory(schedule_sequence_test)
