@@ -1,6 +1,6 @@
 #include <iostream>
+#include <atomic>
 #include <pithreadpool/threadpool.hpp>
-
 
 int main() {
     const pi::threadpool::ThreadPool pool{2, 64};
