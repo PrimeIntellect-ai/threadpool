@@ -225,7 +225,7 @@ namespace pi::threadpool {
             }
             std::vector<TaskFuture<T>> futures{};
             for (size_t i = start; i < end; ++i) {
-                futures.emplace_back(scheduleTask([i, &func] { return func(i); }));
+                futures.emplace_back(scheduleTask([i, func] { return func(i); }));
             }
             return MultiTaskResult<T>(futures);
         }
