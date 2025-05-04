@@ -91,14 +91,14 @@ static void RunTaskQueueItem(const pi::threadpool::TaskQueueItem *entry) {
 static void WorkerThread(std::future<std::reference_wrapper<pi::threadpool::WorkerState>> worker_state_future,
                          const pi::threadpool::ThreadPoolInternalState *internal_state) {
     pi::threadpool::WorkerState &worker_state = worker_state_future.get();
-    while (internal_state->running.load(std::memory_order_acquire)) {
+    while (internal_state->running.load(std::memory_order_seq_cst)) {
         const pi::threadpool::TaskQueueItem *entry{}; {
             tparkBeginPark(worker_state.park_handle);
-            entry = worker_state.task_queue.dequeue(false);
+            entry = worker_state.task_queue.dequeue(true);
             if (entry == nullptr) {
                 tparkWait(worker_state.park_handle, true);
                 do {
-                    entry = worker_state.task_queue.dequeue(false);
+                    entry = worker_state.task_queue.dequeue(true);
                     // despite the fact that wakes are guaranteed not-spurious and insertion into the queue
                     // should happen before the wake, it still is possible that the queue is empty because
                     // seq cst only guarantees all writes before a seq_cst store are visible to other threads
@@ -107,13 +107,15 @@ static void WorkerThread(std::future<std::reference_wrapper<pi::threadpool::Work
                     // Here, the producer calls wake, where we are at the mercy of the OS as to which
                     // memory model it uses for the atomic store. So we still can't assert the queue
                     // is always non-empty after a wake.
-                } while (entry == nullptr && internal_state->running.load(std::memory_order_acquire));
+                } while (entry == nullptr);
             } else {
                 tparkEndPark(worker_state.park_handle);
             }
         }
-        if (entry == nullptr) {
-            break; // this woke up the thread with no task to run, which only happens on shutdown
+        // handle explicit shutdown signal
+        if (entry->task == nullptr) {
+            delete entry;
+            break;
         }
         RunTaskQueueItem(entry);
         delete entry;
@@ -150,6 +152,9 @@ static std::pair<std::thread::id, std::size_t> GetSchedDstThread(const pi::threa
 void pi::threadpool::ScheduleTaskOnFreeThread(const ThreadPoolInternalState *pool_state,
                                               const std::shared_ptr<TaskFutureInternalState> &future_state,
                                               const std::function<ResultWrapper()> &task) {
+    if (!pool_state->running.load(std::memory_order_acquire)) {
+        throw std::runtime_error("pi::threadpool::ThreadPool::scheduleTask called before startup or after shutdown");
+    }
     const TaskQueueItem item{
         task,
         future_state
@@ -167,7 +172,7 @@ void pi::threadpool::ScheduleTaskOnFreeThread(const ThreadPoolInternalState *poo
     const auto [thread_id, thread_idx] = GetSchedDstThread(*pool_state);
     auto *enqueued_item = new TaskQueueItem(item.task, item.future_state);
     const auto &worker_state = pool_state->worker_states.at(thread_idx);
-    if (!worker_state->task_queue.enqueue(enqueued_item, false)) {
+    if (!worker_state->task_queue.enqueue(enqueued_item, true)) {
         delete enqueued_item;
         throw std::runtime_error(
             "pi::threadpool::Threadpool task queue does not have enough capacity to enqueue the task. Please increase max_task_queue_size."
@@ -178,11 +183,12 @@ void pi::threadpool::ScheduleTaskOnFreeThread(const ThreadPoolInternalState *poo
 }
 
 pi::threadpool::ThreadPool::ThreadPool(const int num_threads, const int max_task_queue_size) : internal_state(
-    new ThreadPoolInternalState{num_threads, max_task_queue_size}) {
+        new ThreadPoolInternalState{num_threads, max_task_queue_size}),
+    num_threads(num_threads) {
 }
 
 void pi::threadpool::ThreadPool::startup() const {
-    internal_state->running.store(true, std::memory_order_release);
+    internal_state->running.store(true, std::memory_order_seq_cst);
     // create and start worker threads
     for (int i = 0; i < internal_state->num_threads; ++i) {
         CreateWorkerThread(internal_state);
@@ -193,14 +199,17 @@ void pi::threadpool::ThreadPool::shutdown() const {
     if (!internal_state->running.load(std::memory_order_acquire)) {
         throw std::runtime_error("pi::threadpool::ThreadPool::shutdown called before startup");
     }
-
-    if (internal_state->running.exchange(false, std::memory_order_release)) {
-        for (auto &worker_state: internal_state->worker_states) {
-            tparkWake(worker_state->park_handle);
+    internal_state->running.store(false, std::memory_order_release);
+    size_t idx = 0;
+    for (const auto &worker_state: internal_state->worker_states) {
+        if (!internal_state->worker_states.at(idx)->task_queue.enqueue(new TaskQueueItem(nullptr, nullptr), true)) {
+            throw std::runtime_error(
+                "pi::threadpool::Threadpool task queue does not have enough capacity to enqueue the task. Please increase max_task_queue_size."
+            );
         }
-        for (auto &thread: internal_state->threads) {
-            thread.join();
-        }
+        tparkWake(worker_state->park_handle);
+        internal_state->threads.at(idx).join();
+        idx++;
     }
 }
 

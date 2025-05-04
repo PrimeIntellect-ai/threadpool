@@ -127,7 +127,7 @@ namespace pi::threadpool {
         MultiTaskResult(const MultiTaskResult &) = delete;
 
         void join() const {
-            for (const auto &future : futures) {
+            for (const auto &future: futures) {
                 future.join();
             }
         }
@@ -144,6 +144,45 @@ namespace pi::threadpool {
         }
     };
 
+    template<>
+    class MultiTaskResult<void> {
+        std::vector<TaskFuture<void>> futures;
+
+    public:
+        explicit MultiTaskResult(std::vector<TaskFuture<void>> &futures) : futures(std::move(futures)) {
+        }
+
+        MultiTaskResult() = default;
+
+        MultiTaskResult(MultiTaskResult &&other) noexcept : futures(std::move(other.futures)) {
+            other.futures.clear();
+        }
+
+        MultiTaskResult &operator=(MultiTaskResult &&other) noexcept {
+            if (this != &other) {
+                futures = std::move(other.futures);
+                other.futures.clear();
+            }
+            return *this;
+        }
+
+        MultiTaskResult(const MultiTaskResult &) = delete;
+
+        void join() const {
+            for (const auto &future: futures) {
+                future.join();
+            }
+        }
+
+        [[nodiscard]] size_t size() const {
+            return futures.size();
+        }
+
+        void get() const {
+            join();
+        }
+    };
+
     void ScheduleTaskOnFreeThread(const ThreadPoolInternalState *pool_state,
                                   const std::shared_ptr<TaskFutureInternalState> &future_state,
                                   const std::function<ResultWrapper()> &task);
@@ -152,6 +191,7 @@ namespace pi::threadpool {
 
     class ThreadPool {
         ThreadPoolInternalState *internal_state;
+        int num_threads;
 
     public:
         explicit ThreadPool(int num_threads, int max_task_queue_size);
@@ -203,7 +243,7 @@ namespace pi::threadpool {
          * @return a future that completes when the task was successfully executed
          */
         template<typename T>
-        [[nodiscard]] TaskFuture<T> scheduleTask(const std::function<T()> func) const {
+        [[nodiscard]] TaskFuture<T> scheduleTask(const std::function<T()> &func) const {
             if (!isPoolRunning()) {
                 throw std::runtime_error("pi::threadpool::ThreadPool::scheduleTask called before startup");
             }
@@ -216,16 +256,39 @@ namespace pi::threadpool {
 
         /**
          * Schedules a sequence of tasks to be performed on the threadpool.
+         *
+         * @param start The start index of the sequence.
+         * @param end The end index of the sequence.
+         * @param func The function to be executed for each index in the sequence.
          */
         template<typename T>
         [[nodiscard]] MultiTaskResult<T> scheduleSequence(const size_t start, const size_t end,
-                                                          const std::function<T(size_t)> func) const {
+                                                          const std::function<T(size_t)> &func) const {
             if (!isPoolRunning()) {
                 throw std::runtime_error("pi::threadpool::ThreadPool::scheduleTask called before startup");
             }
             std::vector<TaskFuture<T>> futures{};
             for (size_t i = start; i < end; ++i) {
                 futures.emplace_back(scheduleTask([i, func] { return func(i); }));
+            }
+            return MultiTaskResult<T>(futures);
+        }
+
+        template<typename T>
+        [[nodiscard]] MultiTaskResult<T> scheduleBlocks(const size_t start, const size_t end,
+                                                        const std::function<T(size_t, size_t)> &func,
+                                                        size_t num_blocks = 0) const {
+            if (!isPoolRunning()) {
+                throw std::runtime_error("pi::threadpool::ThreadPool::scheduleTask called before startup");
+            }
+            if (num_blocks == 0) {
+                num_blocks = num_threads;
+            }
+            const size_t block_size = (end - start + num_blocks - 1) / num_blocks;
+            std::vector<TaskFuture<T>> futures{};
+            for (size_t block_start = start; block_start < end; block_start += block_size) {
+                size_t block_end = std::min(block_start + block_size, end);
+                futures.emplace_back(scheduleTask([block_start, block_end, func] { return func(block_start, block_end); }));
             }
             return MultiTaskResult<T>(futures);
         }
