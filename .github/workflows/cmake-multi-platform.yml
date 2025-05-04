@@ -131,7 +131,7 @@ jobs:
           prepare: |
             export PKG_PATH="https://cdn.openbsd.org/pub/OpenBSD/7.6/packages/amd64/"
             
-            pkg_add -I cmake-3.30.1v1 ninja-1.11.1p0v0 llvm-16.0.6p30 clang-tools-extra
+            pkg_add -I cmake-3.30.1v1 ninja-1.11.1p0v0 llvm-16.0.6p30 clang-tools-extra-16.0.6
 
           run: |
             export PATH="/usr/local/llvm/bin:$PATH"
