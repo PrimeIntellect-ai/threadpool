@@ -203,7 +203,7 @@ namespace pi::threadpool {
          * @return a future that completes when the task was successfully executed
          */
         template<typename T>
-        [[nodiscard]] TaskFuture<T> scheduleTask(const std::function<T()> &func) const {
+        [[nodiscard]] TaskFuture<T> scheduleTask(const std::function<T()> func) const {
             if (!isPoolRunning()) {
                 throw std::runtime_error("pi::threadpool::ThreadPool::scheduleTask called before startup");
             }
@@ -219,7 +219,7 @@ namespace pi::threadpool {
          */
         template<typename T>
         [[nodiscard]] MultiTaskResult<T> scheduleSequence(const size_t start, const size_t end,
-                                                          const std::function<T(size_t)> &func) const {
+                                                          const std::function<T(size_t)> func) const {
             if (!isPoolRunning()) {
                 throw std::runtime_error("pi::threadpool::ThreadPool::scheduleTask called before startup");
             }
