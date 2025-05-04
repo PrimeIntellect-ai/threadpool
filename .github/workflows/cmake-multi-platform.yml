@@ -136,8 +136,6 @@ jobs:
           run: |
             export PATH="/usr/local/llvm/bin:$PATH"
             
-            which clang-scan-deps || (echo "clang-scan-deps not found!" && exit 1)
-            
             mkdir -p build
             cmake -B build -G Ninja \
                   -DCMAKE_C_COMPILER=cc \
