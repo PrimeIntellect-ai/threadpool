@@ -91,7 +91,7 @@ static void RunTaskQueueItem(const pi::threadpool::TaskQueueItem *entry) {
 static void WorkerThread(std::future<std::reference_wrapper<pi::threadpool::WorkerState>> worker_state_future,
                          const pi::threadpool::ThreadPoolInternalState *internal_state) {
     pi::threadpool::WorkerState &worker_state = worker_state_future.get();
-    while (internal_state->running.load(std::memory_order_seq_cst)) {
+    while (true) {
         const pi::threadpool::TaskQueueItem *entry{}; {
             tparkBeginPark(worker_state.park_handle);
             entry = worker_state.task_queue.dequeue(true);
