@@ -67,7 +67,7 @@ Or schedule a sequence of tasks:
 int main() {
     const pi::threadpool::ThreadPool pool{1, 64};
     pool.startup();
-    pi::theradpool::MultiTaskFuture<int> future = pool.scheduleTasks<int>(0u, 10u, [](size_t i) {
+    pi::threadpool::MultiTaskFuture<int> future = pool.scheduleTasks<int>(0u, 10u, [](size_t i) {
         std::cout << "Hello World: " << i << std::endl;
         return static_cast<int>(i);
     });
