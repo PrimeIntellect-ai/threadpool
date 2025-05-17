@@ -8,6 +8,7 @@
 #include <random>
 
 #include <MPSCQueue.hpp>
+#include <iostream>
 #include <threadpark.h>
 
 
@@ -56,6 +57,7 @@ namespace pi::threadpool {
     struct WorkerState {
         MPSCQueue<TaskQueueItem> task_queue;
         tpark_handle_t *park_handle;
+        std::atomic<bool> empty{true};
 
         explicit WorkerState(const int max_queue_capacity): task_queue(max_queue_capacity) {
             park_handle = tparkCreateHandle();
@@ -96,6 +98,8 @@ static void WorkerThread(std::future<std::reference_wrapper<pi::threadpool::Work
             tparkBeginPark(worker_state.park_handle);
             entry = worker_state.task_queue.dequeue(true);
             if (entry == nullptr) {
+                // indicate empty
+                worker_state.empty.store(true, std::memory_order_release);
                 tparkWait(worker_state.park_handle, true);
                 do {
                     entry = worker_state.task_queue.dequeue(true);
@@ -138,7 +142,7 @@ static std::thread::id CreateWorkerThread(pi::threadpool::ThreadPoolInternalStat
 static std::pair<std::thread::id, std::size_t> GetSchedDstThread(const pi::threadpool::ThreadPoolInternalState &state) {
     // find first free thread not equal to the current thread
     for (std::size_t i = 0; i < state.worker_states.size(); ++i) {
-        if (state.worker_states.at(i)->task_queue.size() == 0) {
+        if (state.worker_states.at(i)->empty.exchange(false, std::memory_order_acquire)) {
             return std::make_pair(state.threads.at(i).get_id(), i);
         }
     }
@@ -146,6 +150,7 @@ static std::pair<std::thread::id, std::size_t> GetSchedDstThread(const pi::threa
     thread_local std::mt19937 rng{std::random_device{}()};
     std::uniform_int_distribution<std::size_t> dist(0, state.threads.size() - 1);
     std::size_t idx = dist(rng);
+    state.worker_states.at(idx)->empty.store(false, std::memory_order_release);
     return std::make_pair(state.threads.at(idx).get_id(), idx);
 }
 
